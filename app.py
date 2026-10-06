@@ -1,13 +1,14 @@
 import streamlit as st
 import datetime
 import random
+import json
+import extra_streamlit_components as stx
 
 def calcular_dias_restantes():
     hoy = datetime.date.today()
     fin_de_ano = datetime.date(hoy.year, 12, 31)
     return (fin_de_ano - hoy).days + 1
 
-# Mensajes motivacionales
 FRASES = [
     "¡Excelente trabajo! Cada moneda cuenta para tus metas. 🚀",
     "¡Un paso más cerca de tu objetivo financiero! 💪",
@@ -19,23 +20,32 @@ FRASES = [
 st.set_page_config(page_title="Mi Reto de Ahorro", page_icon="🐷")
 st.title("🐷 Mi Reto de Ahorro Diarios")
 
+# Manejo de Cookie/Storage local en el navegador del celular
+cookie_manager = stx.get_cookie_manager()
+
+# Cargar o inicializar datos guardados en el dispositivo
+saved_data = cookie_manager.get(cookie="ahorro_reto_data")
+
 dias_restantes = calcular_dias_restantes()
 
-# Estado inicial para cada usuario
-if "montos_disponibles" not in st.session_state:
-    st.session_state.montos_disponibles = [round((i + 1) * 0.30, 2) for i in range(dias_restantes)]
-    st.session_state.historial = []
+if saved_data:
+    try:
+        data = json.loads(saved_data)
+    except:
+        data = {"montos_disponibles": [round((i + 1) * 0.30, 2) for i in range(dias_restantes)], "historial": []}
+else:
+    data = {"montos_disponibles": [round((i + 1) * 0.30, 2) for i in range(dias_restantes)], "historial": []}
+
+if "monto_pendiente" not in st.session_state:
     st.session_state.monto_pendiente = None
 
 hoy_str = str(datetime.date.today())
-ahorro_hoy = next((item for item in st.session_state.historial if item["fecha"] == hoy_str), None)
+ahorro_hoy = next((item for item in data["historial"] if item["fecha"] == hoy_str), None)
 
-# Cálculo de estadísticas
-total_ahorrado = sum(item["monto"] for item in st.session_state.historial)
-dias_completados = len(st.session_state.historial)
+total_ahorrado = sum(item["monto"] for item in data["historial"])
+dias_completados = len(data["historial"])
 porcentaje_progreso = min(1.0, dias_completados / dias_restantes) if dias_restantes > 0 else 1.0
 
-# Métricas visuales
 col1, col2 = st.columns(2)
 col1.metric("💰 Total Ahorrado", f"S/ {total_ahorrado:.2f}")
 col2.metric("📅 Días Guardados", f"{dias_completados} / {dias_restantes}")
@@ -48,7 +58,6 @@ if ahorro_hoy:
     st.info(f"💡 *{ahorro_hoy.get('frase', '¡Buen trabajo!')}*")
 
 elif st.session_state.monto_pendiente:
-    # FASE 2: Confirmación del depósito
     monto = st.session_state.monto_pendiente
     st.subheader(f"🎯 Tu monto asignado para hoy es: **S/ {monto:.2f}**")
     st.warning("⚠️ **Paso final para validar tu día:** ¿Ya transferiste o guardaste este dinero en tu cuenta?")
@@ -58,12 +67,15 @@ elif st.session_state.monto_pendiente:
     if col_si.button("✅ ¡Sí, ya lo deposité!", type="primary", use_container_width=True):
         st.balloons()
         frase_elegida = random.choice(FRASES)
-        st.session_state.montos_disponibles.remove(monto)
-        st.session_state.historial.append({
+        data["montos_disponibles"].remove(monto)
+        data["historial"].append({
             "fecha": hoy_str, 
             "monto": monto,
             "frase": frase_elegida
         })
+        
+        # Guardar permanentemente en la memoria del celular (expira en 365 días)
+        cookie_manager.set("ahorro_reto_data", json.dumps(data), key="save_data", expires_at=datetime.datetime.now() + datetime.timedelta(days=365))
         st.session_state.monto_pendiente = None
         st.rerun()
 
@@ -72,18 +84,16 @@ elif st.session_state.monto_pendiente:
         st.rerun()
 
 else:
-    # FASE 1: Girar/Sacar la cuota
     if st.button("🎲 Sacar cuota de hoy", type="primary", use_container_width=True):
-        disponibles = st.session_state.montos_disponibles
+        disponibles = data["montos_disponibles"]
         if not disponibles:
             st.snow()
             st.success("¡Felicidades! Completaste todos los días del reto.")
         else:
             monto_maximo = max(disponibles)
             umbral_alto = monto_maximo * 0.7
-            ultimo_monto = st.session_state.historial[-1]["monto"] if st.session_state.historial else 0
+            ultimo_monto = data["historial"][-1]["monto"] if data["historial"] else 0
 
-            # Filtro para evitar montos altos seguidos
             if ultimo_monto >= umbral_alto and len(disponibles) > 1:
                 opciones = [m for m in disponibles if m < umbral_alto]
                 if not opciones:
@@ -97,8 +107,8 @@ else:
 
 st.divider()
 st.subheader("📊 Historial de Ahorros")
-if st.session_state.historial:
-    for item in reversed(st.session_state.historial):
+if data["historial"]:
+    for item in reversed(data["historial"]):
         st.write(f"📅 **{item['fecha']}**: S/ {item['monto']:.2f}")
 else:
     st.info("Aún no has comenzado. ¡Haz clic en el botón para sacar tu primer monto!")
