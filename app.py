@@ -1,83 +1,104 @@
 import streamlit as st
 import datetime
 import random
-import json
-import os
-
-DB_FILE = "ahorro_data.json"
 
 def calcular_dias_restantes():
     hoy = datetime.date.today()
     fin_de_ano = datetime.date(hoy.year, 12, 31)
     return (fin_de_ano - hoy).days + 1
 
-def cargar_datos():
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, "r") as f:
-            return json.load(f)
-    else:
-        dias = calcular_dias_restantes()
-        # Generar lista de montos: 0.30, 0.60, 0.90, ...
-        montos_disponibles = [round((i + 1) * 0.30, 2) for i in range(dias)]
-        return {
-            "fecha_creacion": str(datetime.date.today()),
-            "total_dias": dias,
-            "montos_disponibles": montos_disponibles,
-            "historial": [] # [{fecha, monto}]
-        }
-
-def guardar_datos(data):
-    with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+# Mensajes motivacionales
+FRASES = [
+    "¡Excelente trabajo! Cada moneda cuenta para tus metas. 🚀",
+    "¡Un paso más cerca de tu objetivo financiero! 💪",
+    "¡El hábito del ahorro es el secreto de la libertad financiera! 🔥",
+    "¡Sigue así, tu 'yo' del futuro te lo agradecerá! 🐷✨",
+    "¡Tu disciplina de hoy es tu tranquilidad de mañana! 🎉"
+]
 
 st.set_page_config(page_title="Mi Reto de Ahorro", page_icon="🐷")
-
 st.title("🐷 Mi Reto de Ahorro Diarios")
 
-data = cargar_datos()
+dias_restantes = calcular_dias_restantes()
+
+# Estado inicial para cada usuario
+if "montos_disponibles" not in st.session_state:
+    st.session_state.montos_disponibles = [round((i + 1) * 0.30, 2) for i in range(dias_restantes)]
+    st.session_state.historial = []
+    st.session_state.monto_pendiente = None
+
 hoy_str = str(datetime.date.today())
+ahorro_hoy = next((item for item in st.session_state.historial if item["fecha"] == hoy_str), None)
 
-# Verificar si ya ahorró hoy
-ahorro_hoy = next((item for item in data["historial"] if item["fecha"] == hoy_str), None)
+# Cálculo de estadísticas
+total_ahorrado = sum(item["monto"] for item in st.session_state.historial)
+dias_completados = len(st.session_state.historial)
+porcentaje_progreso = min(1.0, dias_completados / dias_restantes) if dias_restantes > 0 else 1.0
 
-total_ahorrado = sum(item["monto"] for item in data["historial"])
-st.metric("Total Ahorrado", f"${total_ahorrado:.2f}")
+# Métricas visuales
+col1, col2 = st.columns(2)
+col1.metric("💰 Total Ahorrado", f"S/ {total_ahorrado:.2f}")
+col2.metric("📅 Días Guardados", f"{dias_completados} / {dias_restantes}")
+
+st.progress(porcentaje_progreso, text=f"Progreso del reto: {porcentaje_progreso * 100:.1f}%")
+st.divider()
 
 if ahorro_hoy:
-    st.success(f"¡Hoy ya sacaste tu cuota! Te tocó ahorrar: **${ahorro_hoy['monto']:.2f}**")
+    st.success(f"🎉 **¡Cuota de hoy completada!** Ahorraste: **S/ {ahorro_hoy['monto']:.2f}**")
+    st.info(f"💡 *{ahorro_hoy.get('frase', '¡Buen trabajo!')}*")
+
+elif st.session_state.monto_pendiente:
+    # FASE 2: Confirmación del depósito
+    monto = st.session_state.monto_pendiente
+    st.subheader(f"🎯 Tu monto asignado para hoy es: **S/ {monto:.2f}**")
+    st.warning("⚠️ **Paso final para validar tu día:** ¿Ya transferiste o guardaste este dinero en tu cuenta?")
+
+    col_si, col_no = st.columns(2)
+    
+    if col_si.button("✅ ¡Sí, ya lo deposité!", type="primary", use_container_width=True):
+        st.balloons()
+        frase_elegida = random.choice(FRASES)
+        st.session_state.montos_disponibles.remove(monto)
+        st.session_state.historial.append({
+            "fecha": hoy_str, 
+            "monto": monto,
+            "frase": frase_elegida
+        })
+        st.session_state.monto_pendiente = None
+        st.rerun()
+
+    if col_no.button("⏳ Aún no, lo haré luego", use_container_width=True):
+        st.session_state.monto_pendiente = None
+        st.rerun()
+
 else:
-    if st.button("🎲 Sacar cuota de hoy", type="primary"):
-        if not data["montos_disponibles"]:
-            st.balloons()
-            st.success("¡Felicidades! Completaste todos los días de ahorro del año.")
+    # FASE 1: Girar/Sacar la cuota
+    if st.button("🎲 Sacar cuota de hoy", type="primary", use_container_width=True):
+        disponibles = st.session_state.montos_disponibles
+        if not disponibles:
+            st.snow()
+            st.success("¡Felicidades! Completaste todos los días del reto.")
         else:
-            disponibles = data["montos_disponibles"]
             monto_maximo = max(disponibles)
-            umbral_alto = monto_maximo * 0.7  # Definimos el top 30% como 'alto'
-            
-            ultimo_monto = data["historial"][-1]["monto"] if data["historial"] else 0
-            
-            # Filtro para no repetir montos altos consecutivos
+            umbral_alto = monto_maximo * 0.7
+            ultimo_monto = st.session_state.historial[-1]["monto"] if st.session_state.historial else 0
+
+            # Filtro para evitar montos altos seguidos
             if ultimo_monto >= umbral_alto and len(disponibles) > 1:
                 opciones = [m for m in disponibles if m < umbral_alto]
-                if not opciones:  # Si solo quedan altos, tomar cualquiera
+                if not opciones:
                     opciones = disponibles
             else:
                 opciones = disponibles
-                
+
             monto_elegido = random.choice(opciones)
-            
-            # Actualizar datos
-            data["montos_disponibles"].remove(monto_elegido)
-            data["historial"].append({"fecha": hoy_str, "monto": monto_elegido})
-            guardar_datos(data)
-            
+            st.session_state.monto_pendiente = monto_elegido
             st.rerun()
 
 st.divider()
 st.subheader("📊 Historial de Ahorros")
-if data["historial"]:
-    for item in reversed(data["historial"]):
-        st.write(f"📅 **{item['fecha']}**: ${item['monto']:.2f}")
+if st.session_state.historial:
+    for item in reversed(st.session_state.historial):
+        st.write(f"📅 **{item['fecha']}**: S/ {item['monto']:.2f}")
 else:
-    st.info("Aún no has comenzado. ¡Presiona el botón arriba para tu primer día!")
+    st.info("Aún no has comenzado. ¡Haz clic en el botón para sacar tu primer monto!")
