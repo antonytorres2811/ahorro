@@ -2,7 +2,10 @@ import streamlit as st
 import datetime
 import random
 import json
-import extra_streamlit_components as stx
+import os
+
+DB_FOLDER = "usuarios_data"
+os.makedirs(DB_FOLDER, exist_ok=True)
 
 def calcular_dias_restantes():
     hoy = datetime.date.today()
@@ -17,24 +20,39 @@ FRASES = [
     "¡Tu disciplina de hoy es tu tranquilidad de mañana! 🎉"
 ]
 
+def cargar_datos_usuario(usuario_id):
+    filepath = os.path.join(DB_FOLDER, f"{usuario_id}.json")
+    dias = calcular_dias_restantes()
+    if os.path.exists(filepath):
+        with open(filepath, "r") as f:
+            return json.load(f)
+    else:
+        return {
+            "montos_disponibles": [round((i + 1) * 0.30, 2) for i in range(dias)],
+            "historial": []
+        }
+
+def guardar_datos_usuario(usuario_id, data):
+    filepath = os.path.join(DB_FOLDER, f"{usuario_id}.json")
+    with open(filepath, "w") as f:
+        json.dump(data, f, indent=4)
+
 st.set_page_config(page_title="Mi Reto de Ahorro", page_icon="🐷")
 st.title("🐷 Mi Reto de Ahorro Diarios")
 
-# Manejo de Cookie/Storage local en el navegador del celular
-cookie_manager = stx.get_cookie_manager()
+# Identificador simple para guardar tu progreso
+with st.sidebar:
+    st.header("👤 Perfil")
+    usuario_id = st.text_input("Ingresa tu Nombre o ID:", value="mi_ahorro").strip().lower()
+    st.caption("Usa este mismo ID para ver tu progreso en cualquier celular o PC.")
 
-# Cargar o inicializar datos guardados en el dispositivo
-saved_data = cookie_manager.get(cookie="ahorro_reto_data")
+if not usuario_id:
+    st.warning("Por favor ingresa un nombre o ID arriba para continuar.")
+    st.stop()
 
+# Cargar los datos del usuario activo
+data = cargar_datos_usuario(usuario_id)
 dias_restantes = calcular_dias_restantes()
-
-if saved_data:
-    try:
-        data = json.loads(saved_data)
-    except:
-        data = {"montos_disponibles": [round((i + 1) * 0.30, 2) for i in range(dias_restantes)], "historial": []}
-else:
-    data = {"montos_disponibles": [round((i + 1) * 0.30, 2) for i in range(dias_restantes)], "historial": []}
 
 if "monto_pendiente" not in st.session_state:
     st.session_state.monto_pendiente = None
@@ -74,8 +92,8 @@ elif st.session_state.monto_pendiente:
             "frase": frase_elegida
         })
         
-        # Guardar permanentemente en la memoria del celular (expira en 365 días)
-        cookie_manager.set("ahorro_reto_data", json.dumps(data), key="save_data", expires_at=datetime.datetime.now() + datetime.timedelta(days=365))
+        # Guardar en archivo persistente
+        guardar_datos_usuario(usuario_id, data)
         st.session_state.monto_pendiente = None
         st.rerun()
 
